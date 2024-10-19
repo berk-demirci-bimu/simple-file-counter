@@ -2,6 +2,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -13,6 +15,11 @@ public class FileCounter {
             System.out.println("No pathName found");
             return;
         }
+        var logPath = Path.of("read-process.log");
+        if (!Files.exists(logPath)) {
+            Files.createFile(logPath);
+        }
+        Files.writeString(logPath, getProcessingLogString(0), StandardOpenOption.TRUNCATE_EXISTING);
         final ConcurrentHashMap<String, Integer> fileNameGrouper = new ConcurrentHashMap<>();
         final AtomicInteger count = new AtomicInteger(0);
         var basePath = Path.of(properties.pathName());
@@ -28,7 +35,14 @@ public class FileCounter {
                         Integer fileNameGroupItemCount = fileNameGrouper.getOrDefault(fileNameGroup, 0);
                         fileNameGrouper.put(fileNameGroup, fileNameGroupItemCount + 1);
                     }
-                    count.incrementAndGet();
+                    int totalProcessedCount = count.incrementAndGet();
+                    if (totalProcessedCount % 5000 == 0) {
+                        try {
+                            Files.writeString(logPath, "\n" + getProcessingLogString(totalProcessedCount), StandardOpenOption.APPEND);
+                        } catch (IOException e) {
+                            throw new RuntimeException(e);
+                        }
+                    }
                 });
         }
 
@@ -49,6 +63,10 @@ public class FileCounter {
             });
         }
         System.out.println(count);
+    }
+
+    private static String getProcessingLogString(int totalProcessedCount) {
+        return LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME) + " - total processed count: " + totalProcessedCount;
     }
 
     private static Properties getProperties() throws IOException {
