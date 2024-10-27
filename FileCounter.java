@@ -1,7 +1,10 @@
 import java.io.IOException;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.time.LocalDateTime;
@@ -26,15 +29,13 @@ public class FileCounter {
         final AtomicInteger count = new AtomicInteger(0);
         var basePath = Path.of(properties.pathName());
         var fileNameGroupingIndex = properties.fileNameGroupingIndex();
-        long createdAtMax = new SimpleDateFormat().parse(properties.createdAtMax()).getTime();
-        try (var stream = Files.walk(basePath)) {
-            boolean groupFileCountsByName = properties.groupFileCountsByName();
-            stream.parallel()
-                .filter(Files::isRegularFile)
-                .map(Path::toFile)
-                .filter(f -> f.lastModified() < createdAtMax)
-                .forEach(file -> {
-                    var filePath = file.getAbsolutePath();
+        long createdAtMax = new SimpleDateFormat("dd-MM-yyyy'T'HH:mm:ss").parse(properties.createdAtMax()).getTime();
+        boolean groupFileCountsByName = properties.groupFileCountsByName();
+        Files.walkFileTree(basePath, new SimpleFileVisitor<>() {
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                if (attrs.creationTime().toMillis() < createdAtMax) {
+                    var filePath = file.toFile().getAbsolutePath();
                     var filePathWithoutBasePath = filePath.substring(basePath.toString().length() + 1);
                     if (groupFileCountsByName) {
                         String fileNameGroup = filePathWithoutBasePath.substring(0, fileNameGroupingIndex);
@@ -49,8 +50,10 @@ public class FileCounter {
                             throw new RuntimeException(e);
                         }
                     }
-                });
-        }
+                }
+                return super.visitFile(file, attrs);
+            }
+        });
 
         var path = Path.of("total-file-counts.csv");
         if (!Files.exists(path)) {
