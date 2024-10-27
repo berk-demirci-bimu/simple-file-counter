@@ -2,6 +2,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.concurrent.ConcurrentHashMap;
@@ -9,7 +11,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public class FileCounter {
 
-    public static void main(String[] args) throws IOException {
+    public static void main(String[] args) throws IOException, ParseException {
         Properties properties = getProperties();
         if (properties.pathName() == null) {
             System.out.println("No pathName found");
@@ -24,12 +26,16 @@ public class FileCounter {
         final AtomicInteger count = new AtomicInteger(0);
         var basePath = Path.of(properties.pathName());
         var fileNameGroupingIndex = properties.fileNameGroupingIndex();
+        long createdAtMax = new SimpleDateFormat().parse(properties.createdAtMax()).getTime();
         try (var stream = Files.walk(basePath)) {
             boolean groupFileCountsByName = properties.groupFileCountsByName();
-            stream.parallel().filter(Files::isRegularFile)
-                .forEach(path -> {
-                    var file = path.toFile().getAbsolutePath();
-                    var filePathWithoutBasePath = file.substring(basePath.toString().length() + 1);
+            stream.parallel()
+                .filter(Files::isRegularFile)
+                .map(Path::toFile)
+                .filter(f -> f.lastModified() < createdAtMax)
+                .forEach(file -> {
+                    var filePath = file.getAbsolutePath();
+                    var filePathWithoutBasePath = filePath.substring(basePath.toString().length() + 1);
                     if (groupFileCountsByName) {
                         String fileNameGroup = filePathWithoutBasePath.substring(0, fileNameGroupingIndex);
                         Integer fileNameGroupItemCount = fileNameGrouper.getOrDefault(fileNameGroup, 0);
@@ -75,22 +81,22 @@ public class FileCounter {
         String pathName = null;
         boolean printFolderCounts = true;
         int fileNameGroupingIndex = 12;
+        String lastReadDate = LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
         for (String property : propertyArray) {
             var keyValue = property.split("=");
             String propertyKey = keyValue[0];
             String propertyValue = keyValue[1].replaceAll("[\t\r]", "");
-            if ("pathName".equals(propertyKey)) {
-                pathName = propertyValue;
-            } else if ("groupFileCountsByName".equals(propertyKey)) {
-                printFolderCounts = Boolean.parseBoolean(propertyValue);
-            } else if ("fileNameGroupingIndex".equals(propertyKey)) {
-                fileNameGroupingIndex = Integer.parseInt(propertyValue);
+            switch (propertyKey) {
+                case "pathName" -> pathName = propertyValue;
+                case "groupFileCountsByName" -> printFolderCounts = Boolean.parseBoolean(propertyValue);
+                case "fileNameGroupingIndex" -> fileNameGroupingIndex = Integer.parseInt(propertyValue);
+                case "lastReadDate" -> lastReadDate = propertyValue;
             }
         }
-        return new Properties(pathName, printFolderCounts, fileNameGroupingIndex);
+        return new Properties(pathName, printFolderCounts, fileNameGroupingIndex, lastReadDate);
     }
 
-    public record Properties(String pathName, boolean groupFileCountsByName, int fileNameGroupingIndex) {
+    public record Properties(String pathName, boolean groupFileCountsByName, int fileNameGroupingIndex, String createdAtMax) {
 
     }
 }
